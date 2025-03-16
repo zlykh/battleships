@@ -26,7 +26,10 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
 use tower_http::services::ServeDir;
+use tower_http::trace::{self, TraceLayer};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
+use tracing::Level;
 
 mod app_state;
 mod dto;
@@ -34,6 +37,14 @@ mod game_engine;
 
 #[tokio::main]
 async fn main() {
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| format!("{}=trace,tower_http=debug,axum::rejection=trace", env!("CARGO_CRATE_NAME")).into()),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+
     let app_state = Wrapper {
         shared: Arc::new(Shared {
             state: RwLock::new(MyState {
@@ -48,7 +59,13 @@ async fn main() {
         .route("/", get(Html(std::fs::read_to_string("static/main.html").unwrap())))
         .nest_service("/static", ServeDir::new("static"))
         .route("/ws", get(ws_handler))
-        .with_state(app_state);
+        .with_state(app_state)
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(trace::DefaultMakeSpan::new()
+                    .level(Level::INFO))
+                .on_response(trace::DefaultOnResponse::new()
+                    .level(Level::INFO)));
 
     let host = "[::]:8080";
     let listener = tokio::net::TcpListener::bind(host)
