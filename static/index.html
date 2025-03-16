@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en" class="text-gray-900 antialiased leading-tight">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Title</title>
+    <script type="importmap">
+        {
+          "imports": {
+            "vue": "./vue.esm-browser.js"
+          }
+        }
+    </script>
+
+    <!-- minify -->
+    <link rel="stylesheet" href="./7.css">
+    <script type="module">
+        import {createApp} from 'vue'
+
+        const maxShipCells = 20;
+        const maxShipLength = 4;
+        const deck4Max = 1;
+        const deck3Max = 2;
+        const deck2Max = 3;
+        const deck1Max = 4;
+
+
+        const gameStatus = {
+            WAITING_PLAYERS: 'waitingPlayers',
+            PROGRESS: 'progress',
+            GAME_OVER: 'gameOver',
+        };
+
+        const playerAction = {
+            WAIT: 'wait',
+            SHOOT: 'shoot',
+        };
+
+        createApp({
+            data: () => ({
+                websocket: undefined,
+                statusProgressConst: gameStatus.PROGRESS,
+                statusGameOverConst: gameStatus.GAME_OVER,
+                actionWaitConst: playerAction.WAIT,
+                gameId: undefined,
+                playerId: undefined,
+                action: undefined,
+                actionDisplay: undefined,
+                status: undefined,
+                statusDisplay: undefined,
+                hostDisplay: undefined,
+                ships_ready: false,
+                host: "http://localhost:8080",
+                deck_4_cur: 0,
+                deck_3_cur: 0,
+                deck_2_cur: 0,
+                deck_1_cur: 0,
+                deck_1_check_color: 'black',
+                deck_2_check_color: 'black',
+                deck_3_check_color: 'black',
+                deck_4_check_color: 'black',
+                grid_arrange: Array.from(Array(10), () => new Array(10)),
+                arr_arrange: [],
+                final_ships: undefined,
+                grid_me: Array.from(Array(10), () => new Array(10)),
+                grid_enemy: Array.from(Array(10), () => new Array(10)),
+                ten: Array(10).fill().map((x, i) => i),
+                ab: Array(10).fill().map((x, i) => {
+                    switch (i) {
+                        case 0:
+                            return "A";
+                        case 1:
+                            return "B";
+                        case 2:
+                            return "C";
+                        case 3:
+                            return "D";
+                        case 4:
+                            return "E";
+                        case 5:
+                            return "F";
+                        case 6:
+                            return "G";
+                        case 7:
+                            return "H";
+                        case 8:
+                            return "I";
+                        case 9:
+                            return "J";
+                    }
+                }),
+            }),
+            created() {
+                for (var i = 0; i < 10; i++) {
+                    for (var j = 0; j < 10; j++) {
+                        this.grid_me[i][j] = '.';
+                        this.grid_arrange[i][j] = '.';
+                        this.grid_enemy[i][j] = '.';
+                    }
+                }
+
+                // this.ship_len_checker.push([], [], [],)
+            },
+            methods: {
+                setCellColor(cellText) {
+                    switch (cellText) {
+                        case ".":
+                            return "lightgrey";
+                        case "#":
+                            return "darkgreen";
+                        case "_":
+                            return "white";//"deepskyblue";
+                        case "x":
+                            return "darkolivegreen";
+                    }
+                },
+                setCellBorderColor(cellText) {
+                    switch (cellText) {
+                        case ".":
+                            return "solid 1px darkgrey";
+                        case "#":
+                            return "solid 1px darkgrey";
+                        case "_":
+                            return "solid 1px darkgrey";//"deepskyblue";
+                        case "x":
+                            return "solid 1px red";
+                    }
+                },
+                create() {
+
+
+                    if (this.websocket === undefined) {
+                        this.websocket = new WebSocket(`ws://localhost:8080/ws`);
+                    }
+                    const that = this;
+
+                    this.websocket.onopen = function () {
+                        console.log("connection opened");
+                        that.websocket.send(JSON.stringify({connectRq: "stub"}));
+                        that.websocket.send(JSON.stringify({createGameRq: {username: "stub", ships: that.final_ships}}));
+                    }
+
+                    this.websocket.onclose = function () {
+                        console.log("connection closed");
+                        that.websocket.close();
+                        that.websocket = undefined;
+                        that.ships_ready = false;
+                        that.final_ships = undefined;
+                    }
+
+                    this.websocket.onmessage = function (e) {
+                        that.wsMessageHandler(e);
+                    }
+                },
+                join() {
+                    console.log("join")
+                    if (this.websocket === undefined) {
+                        this.websocket = new WebSocket(`ws://localhost:8080/ws`);
+                    }
+
+                    const that = this;
+                    this.websocket.onopen = function () {
+                        console.log("connection opened");
+                        that.websocket.send(JSON.stringify({connectRq: "stub"}));
+
+                        that.websocket.send(JSON.stringify({joinRq: {gameId: that.gameId, username: "stub", ships: that.final_ships}}));
+                    }
+
+                    this.websocket.onclose = function () {
+                        console.log("connection closed");
+                        that.websocket.close();
+                        that.websocket = undefined;
+                        that.ships_ready = false;
+                        that.final_ships = undefined;
+                    }
+
+                    this.websocket.onmessage = function (e) {
+                        that.wsMessageHandler(e);
+                    }
+                },
+                shoot(x, y) {
+                    if (this.websocket === undefined) {
+                        return;
+                    }
+                    this.websocket.send(JSON.stringify({turnRq: {gameId: this.gameId, username: "stub", x: x, y: y}}));
+                },
+                wsMessageHandler(wsEvent) {
+                    console.log("received : " + wsEvent.data);
+
+                    const resp = JSON.parse(wsEvent.data);
+
+                    if (resp === 'gameStart') {
+                        console.log("All players joined, let's go")
+                        return;
+                    }
+
+                    if (resp === 'gameOver') {
+                        console.log("Game finished")
+                        // this.websocket.close();
+                        // this.websocket = undefined;
+                        return;
+                    }
+
+                    if (resp.connectRs) {
+                        const obj = resp.connectRs;
+                        this.playerId = obj.playerId;
+                        console.log(`Your id ${this.playerId}`)
+                    }
+
+                    if (resp.createGameRs) {
+                        const obj = resp.createGameRs;
+                        this.hostDisplay = this.host
+                        this.status = obj.status
+                        this.gameId = obj.id;
+                        this.makeGameStatusDisplayText(obj.status)
+                    }
+
+                    if (resp.joinRs) {
+                        const obj = resp.joinRs;
+                        this.hostDisplay = this.host
+                    }
+
+                    if (resp.arrangeShipsRs) {
+                        console.log("Server accepted ship arrangement")
+                    }
+
+                    if (resp.turnRs) {
+                        const obj = resp.turnRes;
+                        // this.grid_me = resp.me;
+                        // this.grid_enemy = resp.enemy;
+
+                    }
+
+                    if (resp.stateRs) {
+                        const obj = resp.stateRs;
+                        this.status = obj.status;
+                        this.action = obj.action;
+                        console.log(`${obj.status}/${obj.action}`)
+
+                        this.makePlayerActionDisplayText(obj.action)
+                        this.makeGameStatusDisplayText(obj.status)
+
+                        switch (obj.status) {
+                            case gameStatus.GAME_OVER:
+                            case gameStatus.PROGRESS:
+                                for (const [id, grid] of Object.entries(obj.grid)) {
+                                    if (id === this.playerId) {
+                                        this.grid_me = grid
+                                    } else {
+                                        this.grid_enemy = grid
+                                    }
+                                }
+                                break;
+                            case gameStatus.WAITING_PLAYERS:
+                                break;
+                        }
+                    }
+
+                    if (resp.badRequestRes) {
+                        //show error
+                    }
+
+                    if (resp.debug) {
+                        console.log("DEBUG FROM HOST: {}", resp.debug)
+                    }
+                },
+                makePlayerActionDisplayText(action) {
+                    switch (action) {
+                        case playerAction.WAIT:
+                            this.actionDisplay = "Ход соперника";
+                            break;
+                        case playerAction.SHOOT:
+                            this.actionDisplay = "Ваш ход";
+                            break;
+                    }
+                },
+                makeGameStatusDisplayText(status) {
+                    switch (status) {
+                        case gameStatus.PROGRESS:
+                            this.statusDisplay = "Идет игра";
+                            break;
+                        case gameStatus.WAITING_PLAYERS:
+                            this.statusDisplay = "Ожидаем игроков";
+                            break;
+                        case gameStatus.GAME_OVER:
+                            this.statusDisplay = "Игра окончена";
+                            break;
+                    }
+                },
+                placeShip(x, y) {
+                    console.log(`placing ship at ${x}, ${y}`)
+
+                    // this.grid_arrange[5][0] = "#"
+                    // this.grid_arrange[4][0] = "#"
+                    // return;
+
+                    // console.log(this.grid_arrange[0][0])
+
+                    if (this.grid_arrange[x][y] === "#") {
+                        this.grid_arrange[x][y] = "."
+                        return;
+                    }
+
+
+                    if (
+                        (x + 1 < 10 && y + 1 < 10 && this.grid_arrange[x + 1][y + 1] === '#') ||
+                        (x - 1 >= 0 && y - 1 >= 0 && this.grid_arrange[x - 1][y - 1] === '#') ||
+                        (x - 1 >= 0 && y + 1 < 10 && this.grid_arrange[x - 1][y + 1] === '#') ||
+                        (x + 1 < 10 && y - 1 >= 0 && this.grid_arrange[x + 1][y - 1] === '#')
+                    ) {
+                        console.log("Cant place here")
+                        return;
+                    }
+
+
+                    let countx = 0;
+                    for (let i = 1; i <= maxShipLength; i++) {
+
+                        if (x + i <= 9) {
+                            if (this.grid_arrange[x + i][y] === "#") {
+                                countx++;
+                            }
+                        }
+
+
+                        if (x - i >= 0) {
+                            if (this.grid_arrange[x - i][y] === "#") {
+                                countx++;
+                            }
+                        }
+                    }
+                    // console.log(`countx ${countx}`)
+
+
+                    let county = 0;
+                    for (let i = 1; i <= 4; i++) {//4 max length of ship
+                        if (y + i <= 9) {
+                            if (this.grid_arrange[x][y + i] === "#") {
+                                county++;
+                            }
+                        }
+
+                        if (y - i >= 0) {
+                            if (this.grid_arrange[x][y - i] === "#") {
+                                county++;
+                            }
+                        }
+                    }
+                    // console.log(`county ${county}`)
+
+                    if (countx < maxShipLength && county < maxShipLength) {
+                        this.grid_arrange[x][y] = "#";
+                        this.arr_arrange.push([x, y])
+                    }
+                },
+                accept_arrangement() {
+                    console.log(this.arr_arrange.length)
+                    this.deck_4_cur = 0;
+                    this.deck_3_cur = 0;
+                    this.deck_2_cur = 0;
+                    this.deck_1_cur = 0;
+
+                    // this.allow_join = this.arr_arrange.length === 20;
+                    if (this.arr_arrange.length === maxShipCells) {
+                        console.log("Total number of ships is ok")
+                    } else {
+                        console.log("Total number of ships is not ok: " + this.arr_arrange.length)
+                    }
+
+
+                    let copy = JSON.parse(JSON.stringify(this.grid_arrange));
+                    let grouped = [];
+                    for (let x = 0; x < 10; x++) {
+                        for (let y = 0; y < 10; y++) {
+                            let tempShip = [];
+                            let cell = copy[x][y]
+                            if (cell !== "#") {
+                                console.log(`iterating ${x}/${y}`)
+                                continue;
+                            }
+
+                            console.log(`lookup ${x}/${y}`)
+                            // console.log(`for ${x}/${y}  tempships: ${JSON.stringify(tempShip)}`)
+                            let founddown = false;
+                            for (let i = 1; i <= maxShipLength; i++) {
+                                if (x + i <= 9) {
+                                    if (copy[x + i][y] === "#") {
+                                        tempShip.push([x + i, y]);
+                                        copy[x + i][y] = ".";
+                                        founddown = true;
+                                        // console.log("f ts " +JSON.stringify(tempShip))
+                                        console.log(`founddown at ${x + i}/${y}`)
+                                    } else {
+                                        break;
+                                    }
+                                }
+                            }
+
+                            let foundtop = false;
+                            for (let i = 1; i <= maxShipLength; i++) {
+                                if (x - i >= 0) {
+                                    if (copy[x - i][y] === "#") {
+                                        tempShip.push([x - i, y]);
+                                        copy[x - i][y] = ".";
+                                        foundtop = true;
+                                        console.log(`foundtop at ${x - i}/${y}`);
+                                    }
+                                } else {
+                                    break;
+                                }
+                            }
+
+                            let foundright = false;
+                            for (let i = 1; i <= maxShipLength; i++) {
+                                if (y + i <= 9) {
+                                    if (copy[x][y + i] === "#") {
+                                        tempShip.push([x, y + i]);
+                                        copy[x][y + i] = ".";
+                                        // this.arr_arrange.splice(len, 1);
+                                        foundright = true;
+                                        console.log(`foundright at ${x}/${y + i}`)
+                                    } else {
+                                        break
+                                    }
+                                }
+                            }
+
+                            let foundleft = false;
+                            for (let i = 1; i <= maxShipLength; i++) {
+                                if (y - i >= 0) {
+                                    if (this.grid_arrange[x][y - i] === "#") {
+                                        tempShip.push([x, y - i]);
+                                        copy[x][y - i] = ".";
+                                        // this.arr_arrange.splice(len, 1);
+                                        foundleft = true;
+                                        console.log(`foundleft at ${x}/${y - i}`)
+                                    } else {
+                                        break
+                                    }
+                                }
+                            }
+
+                            console.log(`tempships ${JSON.stringify(tempShip)}`)
+
+                            if (!foundtop && !founddown && !foundleft && !foundright) {
+                                tempShip.push([x, y])
+                                grouped.push(tempShip);
+                                tempShip = [];
+                                copy[x][y] = ".";
+                                console.log("single")
+                            }
+
+
+                            // console.log(`foundx ${foundx}`)
+                            if (foundtop || founddown || foundleft || foundright) {
+                                console.log(`next adjacent cell not found, push tempships to group`)
+                                tempShip.push([x, y])
+                                grouped.push(tempShip);
+                                tempShip = [];
+                                copy[x][y] = ".";
+                            }
+                        }
+                    }
+
+
+                    console.log(`grouped ships: ${grouped.length}  ${JSON.stringify(grouped)}`)
+                    let errorcnt = 0;
+                    for (let gid = 0; gid < grouped.length; gid++) {
+                        if (grouped[gid].length === 4) {
+                            this.deck_4_cur++;
+                        } else if (grouped[gid].length === 3) {
+                            this.deck_3_cur++;
+                        } else if (grouped[gid].length === 2) {
+                            this.deck_2_cur++;
+                        } else if (grouped[gid].length === 1) {
+                            this.deck_1_cur++;
+                        } else {
+                            errorcnt++;
+                        }
+                    }
+
+                    this.deck_4_check_color = this.deck_4_cur === deck4Max ? "green" : "red";
+                    this.deck_3_check_color = this.deck_3_cur === deck3Max ? "green" : "red";
+                    this.deck_2_check_color = this.deck_2_cur === deck2Max ? "green" : "red";
+                    this.deck_1_check_color = this.deck_1_cur === deck1Max ? "green" : "red";
+
+                    if (errorcnt !== 0) {
+                        console.log(`mega arrangement error, abort`)
+                        this.ships_ready = false;
+                        return;
+                    }
+
+                    if (this.deck_1_cur !== deck1Max || this.deck_2_cur !== deck2Max ||
+                        this.deck_3_cur !== deck3Max || this.deck_4_cur !== deck4Max) {
+                        console.log(`wrong group count, delta: xxxx:${deck4Max - this.deck_4_cur}
+                         xxx:${deck3Max - this.deck_3_cur} xx:${deck2Max - this.deck_2_cur} x:${deck1Max - this.deck_1_cur}`)
+                        this.ships_ready = false;
+                        return;
+                    }
+
+                    console.log("placement ok, can start!")
+                    this.ships_ready = true;
+                    this.final_ships = grouped;
+                }
+            }
+        }).mount('#app')
+    </script>
+</head>
+
+
+<body>
+<div id="app" class="window active" style="max-width: 600px">
+    <div class="title-bar">
+        <div class="title-bar-text">The Game</div>
+        <div class="title-bar-controls">
+            <button aria-label="Minimize"></button>
+            <button aria-label="Maximize"></button>
+            <button aria-label="Close"></button>
+        </div>
+    </div>
+    <ul role="menubar" class="can-hover">
+        <li role="menuitem" tabindex="0" aria-haspopup="true">
+            File
+            <ul role="menu">
+                <li role="menuitem">
+                    <a href="#menubar">
+                        Open <span>Ctrl+O</span>
+                    </a>
+                </li>
+                <li role="menuitem"><a href="#menubar">Exit</a></li>
+            </ul>
+        </li>
+    </ul>
+    <div class="window-body has-space">
+
+        <div class="field-row-stacked" style="width: 200px">
+            <label for="host">Host</label>
+            <input id="host" type="text" v-model="host" :disabled="hostDisplay"/>
+        </div>
+        <div class="field-row">
+            <table>
+                <tbody>
+                <tr>
+                    <th/>
+                    <th v-for="n in ten">{{n+1}}</th>
+                </tr>
+                <tr v-for="(row, x) in grid_arrange">
+                    <th>{{ab[x]}}</th>
+                    <td v-for="(cell,y) in row"
+                        @click="placeShip(x,y)"
+                        :style="{'width':'15px','height':'15px', 'border':setCellBorderColor(cell),'background':setCellColor(cell)}">
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+            <ul class="tree-view has-container">
+                <li><span :style="{'color': deck_4_check_color}">4-deck: {{deck_4_cur}}/1</span></li>
+                <li><span :style="{'color': deck_3_check_color}">3-deck: {{deck_3_cur}}/2</span></li>
+                <li><span :style="{'color': deck_2_check_color}">2-deck: {{deck_2_cur}}/3</span></li>
+                <li><span :style="{'color': deck_1_check_color}">1-deck: {{deck_1_cur}}/4</span></li>
+            </ul>
+
+        </div>
+        <div class="field-row-stacked" style="width: 200px">
+            <button @click="accept_arrangement" type="button" class="default focused">Validate Ships</button>
+            <button @click="create" :disabled="!ships_ready" type="button">New Game</button>
+            <label for="gameid">Game ID</label>
+            <input id="gameid" type="text" v-model="gameId"/>
+            <button @click="join" :disabled="!gameId && !ships_ready" type="button">Join</button>
+        </div>
+
+        <p><span>{{playerId}}</span></p>
+        <p><span>{{statusDisplay}}</span></p>
+        <p v-if="!!action"><span>{{actionDisplay }}</span></p>
+        <div class="field-row" v-if="status == statusProgressConst || status == statusGameOverConst">
+            <table>
+                <tbody>
+                <tr>
+                    <th/>
+                    <th v-for="n in ten">{{n+1}}</th>
+                </tr>
+                <tr v-for="(row, x) in grid_me">
+                    <th>{{ab[x]}}</th>
+                    <td v-for="(cell,y) in row"
+                        :style="{'width':'15px','height':'15px', 'border':setCellBorderColor(cell),'background':setCellColor(cell)}">
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+            <span>----------</span>
+            <table>
+                <tbody>
+                <tr>
+                    <th/>
+                    <th v-for="n in ten">{{n+1}}</th>
+                </tr>
+                <tr v-for="(row,x) in grid_enemy">
+                    <th>{{ab[x]}}</th>
+                    <td v-for="(cell,y) in row"
+                        @click="shoot(x, y)"
+                        :style="{'width':'15px','height':'15px', 'border':setCellBorderColor(cell),'background':setCellColor(cell)}">
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="status-bar">
+        <p class="status-bar-field">Press F1 for help</p>
+        <p class="status-bar-field">Slide 1</p>
+        <p class="status-bar-field">CPU Usage: 14%</p>
+    </div>
+</div>
+</body>
+
+</html>
+
+
+<!--    <template v-for="branch in branches">-->
+<!--        <input type="radio"-->
+<!--               :id="branch"-->
+<!--               :value="branch"-->
+<!--               name="branch"-->
+<!--               v-model="currentBranch">-->
+<!--        <label :for="branch">{{ branch }}</label>-->
+<!--    </template>-->
+<!--    <p>vuejs/core@{{ currentBranch }}</p>-->
+<!--    <ul v-if="commits.length > 0">-->
+<!--        <li v-for="{ html_url, sha, author, commit } in commits" :key="sha">-->
+<!--            <a :href="html_url" target="_blank" class="commit">{{ sha.slice(0, 7) }}</a> - -->
+<!--            <span class="message">{{ truncate(commit.message) }}</span>-->
+<!--            <br>-->
+<!--            by <span class="author"><a :href="author.html_url" target="_blank">{{ commit.author.name }}</a></span>-->
+<!--            at <span class="date">{{ formatDate(commit.author.date) }}</span>-->
+<!--        </li>-->
+<!--    </ul>-->

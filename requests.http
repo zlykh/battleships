@@ -1,0 +1,36 @@
+###
+GET localhost:8080/game/create/diman
+
+/*
+{
+  "id": "UCfs8B",
+  "status": "WaitingPlayers"
+}
+*/
+
+###
+GET localhost:8080/game/UCfs8B/join/ivan
+
+/*
+{
+  "action": null,
+  "enemy": null,
+  "me": null,
+  "status": "WaitingPlayers" --- ????
+}
+*/
+
+###
+GET localhost:8080/game/UCfs8B/turn/diman/0/9
+
+###
+GET localhost:8080/game/UCfs8B/state/diman
+
+/*
+{
+  "action": null,
+  "enemy": null,
+  "me": null,
+  "status": "WaitingPlayers"
+}
+*/
