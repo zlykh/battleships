@@ -45,6 +45,7 @@ async fn main() {
     };
 
     let app = Router::new()
+        .route("/", get(Html(std::fs::read_to_string("static/main.html").unwrap())))
         .nest_service("/static", ServeDir::new("static"))
         .route("/ws", get(ws_handler))
         .with_state(app_state);
