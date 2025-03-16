@@ -49,7 +49,7 @@ async fn main() {
         .route("/ws", get(ws_handler))
         .with_state(app_state);
 
-    let host = "[::]:80";
+    let host = "[::]:8080";
     let listener = tokio::net::TcpListener::bind(host)
         .await
         .unwrap();
