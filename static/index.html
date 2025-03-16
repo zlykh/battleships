@@ -130,7 +130,7 @@
 
 
                     if (this.websocket === undefined) {
-                        this.websocket = new WebSocket(`ws://${this.host}/ws`);
+                        this.websocket = new WebSocket(`ws://${this.host.slice(0,8)}/ws`);
                     }
                     const that = this;
 
@@ -155,7 +155,7 @@
                 join() {
                     console.log("join")
                     if (this.websocket === undefined) {
-                        this.websocket = new WebSocket(`ws://${this.host}/ws`);
+                        this.websocket = new WebSocket(`ws://${this.host.slice(0,8)}/ws`);
                     }
 
                     const that = this;
