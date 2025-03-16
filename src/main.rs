@@ -49,15 +49,17 @@ async fn main() {
         .route("/ws", get(ws_handler))
         .with_state(app_state);
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:8080")
+    let host = "[::]:80";
+    let listener = tokio::net::TcpListener::bind(host)
         .await
         .unwrap();
+    println!("Starting at {}", host);
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .await
-    .unwrap();
+        .await
+        .unwrap();
 }
 
 async fn ws_handler(ws: WebSocketUpgrade, State(wrapper): State<Wrapper>) -> impl IntoResponse {
