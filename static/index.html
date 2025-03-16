@@ -130,7 +130,7 @@
 
 
                     if (this.websocket === undefined) {
-                        this.websocket = new WebSocket(`ws://localhost:8080/ws`);
+                        this.websocket = new WebSocket(`ws://${this.host}/ws`);
                     }
                     const that = this;
 
