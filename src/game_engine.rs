@@ -11,7 +11,7 @@ pub fn game_new(
     println!("game_new: {}", &username);
 
     {
-        let mut state = wrapper.shared.state.read().unwrap();
+        let state = wrapper.shared.state.read().unwrap();
         if let Some(game_id) = state.client_games.get(&username) {
             return WsEvent::CreateGameRs {
                 game_id: game_id.clone(),
@@ -201,12 +201,9 @@ pub fn game_turn(
         return WsEvent::BadRequestRs("Incorrect coordinates".to_string());
     }
 
-    let p1_name;
-    let p2_name;
-    let status;
     {
-        let mut state = wrapper.shared.state.read().unwrap();
-        let mut game = state.games.get(&game_id).unwrap();
+        let state = wrapper.shared.state.read().unwrap();
+        let game = state.games.get(&game_id).unwrap();
 
         if game.status == WaitingPlayers || game.status == GameOver {
             return WsEvent::TurnRs(GridDTO {
@@ -226,11 +223,6 @@ pub fn game_turn(
         let game = state.games.get_mut(&game_id).unwrap();
 
         do_turn_user(Point2d { x, y }, username.clone(), game);
-
-        status = game.status;
-
-        p1_name = game.p1.as_ref().unwrap().name.clone();
-        p2_name = game.p2.as_ref().unwrap().name.clone();
     }
 
     return game_state(wrapper.clone(), StateRequest::new(game_id, username));
@@ -334,8 +326,8 @@ pub fn grid_as_json_single(p: &Player, enemy: bool) -> Grid2D {
 
     if enemy {
         //hide enemy ships
-        for (x, row) in grid.iter_mut().enumerate() {
-            for (y, cell) in row.iter_mut().enumerate() {
+        for (_, row) in grid.iter_mut().enumerate() {
+            for (_, cell) in row.iter_mut().enumerate() {
                 *cell = if cell == "#" {
                     ".".to_string()
                 } else {

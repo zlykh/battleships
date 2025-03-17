@@ -1,26 +1,18 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
-use std::ops::{ControlFlow, Index};
-use std::{env, thread};
+use std::{env};
 
 use crate::app_state::{Client, MyState, Shared, Wrapper};
-use crate::dto::{StateRequest, TurnRequest, WsEvent};
-use axum::body::Bytes;
-use axum::extract::ws::{CloseFrame, Message, Utf8Bytes, WebSocket};
-use axum::extract::{ConnectInfo, State, WebSocketUpgrade};
-use axum::middleware::AddExtension;
+use crate::dto::{StateRequest, WsEvent};
+use axum::extract::ws::{Message, WebSocket};
+use axum::extract::{State, WebSocketUpgrade};
 use axum::response::{Html, IntoResponse};
-use axum::routing::{any, get};
+use axum::routing::{get};
 use axum::Router;
-use axum_extra::{headers, TypedHeader};
 use futures::{sink::SinkExt, stream::StreamExt};
-use rand::distr::{Alphanumeric, SampleString};
-use rand::Rng;
 use serde_json::json;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
-use tokio::sync::broadcast;
 use tokio::sync::broadcast::Receiver;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
@@ -130,10 +122,9 @@ async fn websocket(stream: WebSocket, wrapper: Wrapper) {
                 match v {
                     WsEvent::ConnectRq { .. } => {
                         let _ = self_chan_sender
-                            .send(
-                                (WsEvent::ConnectRs {
+                            .send(WsEvent::ConnectRs {
                                     player_id: connection_id.clone(),
-                                }),
+                                },
                             )
                             .await
                             .unwrap();
@@ -143,7 +134,7 @@ async fn websocket(stream: WebSocket, wrapper: Wrapper) {
 
                         let response = game_engine::game_new(wrapper.clone(), rq);
                         let game_id = match &response {
-                            WsEvent::CreateGameRs { game_id, status } => game_id.clone(),
+                            WsEvent::CreateGameRs { game_id, .. } => game_id.clone(),
                             _ => String::new(),
                         };
 
@@ -153,7 +144,7 @@ async fn websocket(stream: WebSocket, wrapper: Wrapper) {
                             Client::new(connection_id.clone(), self_chan_sender.clone()),
                         );
 
-                        let room_receiver = wrapper.get_room_sender(&game_id).subscribe();
+                        // let room_receiver = wrapper.get_room_sender(&game_id).subscribe();
                         // broadband_handle = Some(broadband_consumer(room_receiver, self_chan_sender.clone()));
 
                         let _ = self_chan_sender.send(response).await.unwrap();
@@ -170,7 +161,7 @@ async fn websocket(stream: WebSocket, wrapper: Wrapper) {
                             Client::new(username.clone(), self_chan_sender.clone()),
                         );
 
-                        let room_receiver = wrapper.get_room_sender(&game_id).subscribe();
+                        // let room_receiver = wrapper.get_room_sender(&game_id).subscribe();
                         // broadband_handle = Some(broadband_consumer(room_receiver, self_chan_sender.clone()));
 
                         let response = game_engine::game_join(wrapper.clone(), rq);
@@ -245,7 +236,7 @@ async fn websocket(stream: WebSocket, wrapper: Wrapper) {
                             }
                             let game_id = rq.game_id.clone();
                             rq.username = connection_id.clone();
-                            let response = game_engine::game_turn(wrapper.clone(), rq);
+                            game_engine::game_turn(wrapper.clone(), rq);
 
                             // get senders for me & opponent
                             // send initial state for me & opponent

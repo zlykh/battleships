@@ -230,15 +230,6 @@ impl Point2d {
     }
 }
 
-pub fn gen_hit_grid() -> Vec<Point2d> {
-    let mut flat_grid: Vec<Point2d> = vec![];
-    for i in 0..10 {
-        for j in 0..10 {
-            flat_grid.push(Point2d { x: i, y: j })
-        }
-    }
-    return flat_grid;
-}
 
 #[derive(Clone, PartialEq, Debug, Copy)]
 pub enum ShipType {

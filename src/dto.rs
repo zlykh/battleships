@@ -1,4 +1,3 @@
-use crate::app_state::Point2d;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
