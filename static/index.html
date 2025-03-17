@@ -137,7 +137,12 @@
                     this.websocket.onopen = function () {
                         console.log("connection opened");
                         that.websocket.send(JSON.stringify({connectRq: "stub"}));
-                        that.websocket.send(JSON.stringify({createGameRq: {username: "stub", ships: that.final_ships}}));
+                        that.websocket.send(JSON.stringify({
+                            createGameRq: {
+                                username: "stub",
+                                ships: that.final_ships
+                            }
+                        }));
                     }
 
                     this.websocket.onclose = function () {
@@ -163,7 +168,13 @@
                         console.log("connection opened");
                         that.websocket.send(JSON.stringify({connectRq: "stub"}));
 
-                        that.websocket.send(JSON.stringify({joinRq: {gameId: that.gameId, username: "stub", ships: that.final_ships}}));
+                        that.websocket.send(JSON.stringify({
+                            joinRq: {
+                                gameId: that.gameId,
+                                username: "stub",
+                                ships: that.final_ships
+                            }
+                        }));
                     }
 
                     this.websocket.onclose = function () {
@@ -267,10 +278,10 @@
                 makePlayerActionDisplayText(action) {
                     switch (action) {
                         case playerAction.WAIT:
-                            this.actionDisplay = "Ход соперника";
+                            this.actionDisplay = "ход соперника";
                             break;
                         case playerAction.SHOOT:
-                            this.actionDisplay = "Ваш ход";
+                            this.actionDisplay = "ваш ход";
                             break;
                     }
                 },
@@ -509,9 +520,9 @@
 
 
 <body>
-<div id="app" class="window active" style="max-width: 600px">
+<div id="app" class="window" style="max-width: 600px">
     <div class="title-bar">
-        <div class="title-bar-text">The Game</div>
+        <div class="title-bar-text">Морской бой</div>
         <div class="title-bar-controls">
             <button aria-label="Minimize"></button>
             <button aria-label="Maximize"></button>
@@ -532,46 +543,50 @@
         </li>
     </ul>
     <div class="window-body has-space">
-
         <div class="field-row-stacked" style="width: 200px">
-            <label for="host">Host</label>
+            <label for="host">Сервер</label>
             <input id="host" type="text" v-model="host" :disabled="hostDisplay"/>
         </div>
-        <div class="field-row">
-            <table>
-                <tbody>
-                <tr>
-                    <th/>
-                    <th v-for="n in ten">{{n+1}}</th>
-                </tr>
-                <tr v-for="(row, x) in grid_arrange">
-                    <th>{{ab[x]}}</th>
-                    <td v-for="(cell,y) in row"
-                        @click="placeShip(x,y)"
-                        :style="{'width':'15px','height':'15px', 'border':setCellBorderColor(cell),'background':setCellColor(cell)}">
-                    </td>
-                </tr>
-                </tbody>
-            </table>
-            <ul class="tree-view has-container">
-                <li><span :style="{'color': deck_4_check_color}">4-deck: {{deck_4_cur}}/1</span></li>
-                <li><span :style="{'color': deck_3_check_color}">3-deck: {{deck_3_cur}}/2</span></li>
-                <li><span :style="{'color': deck_2_check_color}">2-deck: {{deck_2_cur}}/3</span></li>
-                <li><span :style="{'color': deck_1_check_color}">1-deck: {{deck_1_cur}}/4</span></li>
-            </ul>
+        <ul>
+            <li>
+                <details open>
+                    <summary>Расстановка (нажать чтобы спрятать)</summary>
+                    <div class="field-row">
+                        <table>
+                            <tbody>
+                            <tr>
+                                <th/>
+                                <th v-for="n in ten">{{n+1}}</th>
+                            </tr>
+                            <tr v-for="(row, x) in grid_arrange">
+                                <th>{{ab[x]}}</th>
+                                <td v-for="(cell,y) in row"
+                                    @click="placeShip(x,y)"
+                                    :style="{'width':'15px','height':'15px', 'border':setCellBorderColor(cell),'background':setCellColor(cell)}">
+                                </td>
+                            </tr>
+                            </tbody>
+                        </table>
+                        <ul class="tree-view has-container">
+                            <li><span :style="{'color': deck_4_check_color}">4-палубный: {{deck_4_cur}}/1</span></li>
+                            <li><span :style="{'color': deck_3_check_color}">3-палубный: {{deck_3_cur}}/2</span></li>
+                            <li><span :style="{'color': deck_2_check_color}">2-палубный: {{deck_2_cur}}/3</span></li>
+                            <li><span :style="{'color': deck_1_check_color}">1-палубный: {{deck_1_cur}}/4</span></li>
+                        </ul>
+                    </div>
+                </details>
+            </li>
+        </ul>
 
-        </div>
         <div class="field-row-stacked" style="width: 200px">
-            <button @click="accept_arrangement" type="button" class="default focused">Validate Ships</button>
-            <button @click="create" :disabled="!ships_ready" type="button">New Game</button>
-            <label for="gameid">Game ID</label>
-            <input id="gameid" type="text" v-model="gameId"/>
-            <button @click="join" :disabled="!gameId && !ships_ready" type="button">Join</button>
+            <button @click="accept_arrangement" type="button" class="default focused">Использовать расстановку</button>
+                <button @click="create" :disabled="!ships_ready" type="button">Создать игру</button>
+                <label for="gameid">ID игры</label>
+                <input id="gameid" type="text" v-model="gameId"/>
+                <button @click="join" :disabled="!gameId && !ships_ready" type="button">Присоединиться</button>
         </div>
 
-        <p><span>{{playerId}}</span></p>
-        <p><span>{{statusDisplay}}</span></p>
-        <p v-if="!!action"><span>{{actionDisplay }}</span></p>
+        <p><span>{{statusDisplay}}: {{actionDisplay}}</span></p>
         <div class="field-row" v-if="status == statusProgressConst || status == statusGameOverConst">
             <table>
                 <tbody>
@@ -606,9 +621,8 @@
         </div>
     </div>
     <div class="status-bar">
-        <p class="status-bar-field">Press F1 for help</p>
-        <p class="status-bar-field">Slide 1</p>
-        <p class="status-bar-field">CPU Usage: 14%</p>
+        <p class="status-bar-field">{{statusDisplay}}: {{actionDisplay}}</p>
+        <p class="status-bar-field">{{gameId}}:{{playerId}}</p>
     </div>
 </div>
 </body>
