@@ -1,20 +1,8 @@
-use crate::app_state::{
-    CellType, Game, GameClients, GameFlow, Player, Point2d, Ship, ShipType, Wrapper,
-};
-use crate::dto::{
-    CreateGameRequest, GameStatus, GridDTO, GridResponse, JoinRequest, NewGameResponse,
-    PlayerAction, StateRequest, TurnRequest, WsEvent,
-};
+use crate::app_state::{CellType, Client, Game, GameClients, GameFlow, Player, Point2d, Wrapper};
+use crate::dto::{CreateGameRequest, GameStatus, Grid2D, GridDTO, GridResponse, JoinGameRequest, PlayerAction, QueueRequest, StateRequest, TurnRequest, WsEvent};
 use std::collections::HashMap;
+use tokio::sync::mpsc::Sender;
 use GameStatus::{GameOver, Progress, WaitingPlayers};
-/*
-Explicitly store on the heap: Box
-
-Shared ownership: Arc and Rc
-
-Mutate something shared: Cell, RefCell, Mutex
-https://www.reddit.com/r/rust/comments/llzewm/when_should_i_use_box_arc_rc_cell_and_refcell_can/
- */
 
 pub fn game_new(
     wrapper: Wrapper,
@@ -25,10 +13,10 @@ pub fn game_new(
     {
         let mut state = wrapper.shared.state.read().unwrap();
         if let Some(game_id) = state.client_games.get(&username) {
-            return WsEvent::CreateGameRs(NewGameResponse {
-                id: game_id.clone(),
+            return WsEvent::CreateGameRs {
+                game_id: game_id.clone(),
                 status: Progress,
-            });
+            };
         }
     } //drop lock
 
@@ -42,21 +30,21 @@ pub fn game_new(
     state.game_clients.insert(
         game_id.clone(),
         GameClients(username.clone(), String::new()),
-    ); //tup????
+    );
 
-    return WsEvent::CreateGameRs(NewGameResponse {
-        id: game_id.clone(),
+    return WsEvent::CreateGameRs {
+        game_id: game_id.clone(),
         status: WaitingPlayers,
-    });
+    };
 }
 
 pub fn game_join(
     wrapper: Wrapper,
-    JoinRequest {
+    JoinGameRequest {
         game_id,
         username,
         ships,
-    }: JoinRequest,
+    }: JoinGameRequest,
 ) -> WsEvent {
     println!("game_join: {} {}", &game_id, &username);
 
@@ -95,7 +83,6 @@ pub fn game_join(
     );
 
     if has_p1 && has_p2 {
-        // state.games.get_mut(&game_id).unwrap().p2 = Some(Player::new(username.clone().to_string(), arrange_p1()));
         state.client_games.insert(username.clone(), game_id.clone());
         state.game_clients.get_mut(&game_id).unwrap().1 = username.clone();
     }
@@ -109,11 +96,96 @@ pub fn game_join(
         }
     }
 
-    // return game_state(state.clone(), StateRequest{game_id, username})
     return WsEvent::JoinRs(GridResponse::new(status.clone(), None), p1_name);
 }
 
-// #[get("/game/{id}/turn/{username}/{x}/{y}")]
+pub fn enqueue(
+    wrapper: Wrapper,
+    QueueRequest { username, ships }: QueueRequest,
+    sender: Sender<WsEvent>,
+) -> WsEvent {
+    println!("queue: {}", &username);
+
+    let state = &mut wrapper.shared.state.write().unwrap();
+    state.queue.push_back((username.clone(), sender, ships));
+
+    return WsEvent::QueueRs {
+        player_id: username,
+    };
+}
+
+pub async fn match_players(wrapper: Wrapper) {
+    {
+        let state = &mut wrapper.shared.state.read().unwrap();
+        // println!("Queue len: {}", state.queue.len());
+        if state.queue.len() < 2 {
+            return;
+        }
+    }
+
+    let (p1, p2);
+    {
+        let state = &mut wrapper.shared.state.write().unwrap();
+        p1 = state.queue.pop_front();
+        p2 = state.queue.pop_front();
+    }
+
+    //assume queue doesn't contain dangling players (removed on disconnect)
+    if let (Some((c1, sender1, ships1)), Some((c2, sender2, ships2))) = (p1, p2) {
+        let rs = game_new(
+            wrapper.clone(),
+            CreateGameRequest {
+                username: c1.clone(),
+                ships: ships1,
+            },
+        );
+        if let WsEvent::CreateGameRs { game_id, .. } = rs {
+            game_join(
+                wrapper.clone(),
+                JoinGameRequest {
+                    game_id: game_id.clone(),
+                    username: c2.clone(),
+                    ships: ships2,
+                },
+            );
+
+            wrapper.attach_client(&game_id, Client::new(c1.clone(), sender1));
+
+            wrapper.attach_client(&game_id, Client::new(c2.clone(), sender2));
+
+            let (me, opponent) = wrapper.get_clients(&game_id);
+            let my_state = game_state(
+                wrapper.clone(),
+                StateRequest::new(game_id.clone(), me.id),
+            );
+            let opponent_state = game_state(
+                wrapper.clone(),
+                StateRequest::new(game_id.clone(), opponent.id),
+            );
+
+            println!("Matched {} vs {} in game {}", &c1, &c2, &game_id);
+
+            let _ = me
+                .sender
+                .send(WsEvent::GameStart {
+                    game_id: game_id.clone(),
+                })
+                .await
+                .unwrap();
+            let _ = opponent
+                .sender
+                .send(WsEvent::GameStart {
+                    game_id: game_id.clone(),
+                })
+                .await
+                .unwrap();
+
+            let _ = me.sender.send(my_state).await.unwrap();
+            let _ = opponent.sender.send(opponent_state).await.unwrap();
+        };
+    };
+}
+
 pub fn game_turn(
     wrapper: Wrapper,
     TurnRequest {
@@ -135,7 +207,7 @@ pub fn game_turn(
     {
         let mut state = wrapper.shared.state.read().unwrap();
         let mut game = state.games.get(&game_id).unwrap();
-        // let game = &mut *data.game.lock().unwrap();
+
         if game.status == WaitingPlayers || game.status == GameOver {
             return WsEvent::TurnRs(GridDTO {
                 me: vec![],
@@ -143,12 +215,9 @@ pub fn game_turn(
             });
         }
 
-        // requester = if username == game.p1.as_ref().unwrap().name { P1 } else { P2 }; //bug always p2 turn if no such name
         let is_turning_player = username == game.current_turn; //bug always p2 turn if no such name
         if !is_turning_player {
-            //game.current_turn == requester {
-            return game_state(wrapper.clone(), StateRequest { game_id, username });
-            // return WsEvent::TurnRs(grid_as_json(game.p1.as_ref().unwrap(), game.p2.as_ref().unwrap(), requester.clone()));
+            return game_state(wrapper.clone(), StateRequest::new(game_id, username));
         }
     }
 
@@ -164,27 +233,10 @@ pub fn game_turn(
         p2_name = game.p2.as_ref().unwrap().name.clone();
     }
 
-    // if status == GameOver {
-    //     println!("game over, remove {} and {} and {}", &p1_name, &p2_name, &game_id);
-    //     //todo ?
-    //     // let mut state = wrapper.shared.state.write().unwrap();
-    //     // state.client_games.remove(&p1_name);
-    //     // state.client_games.remove(&p2_name);
-    //     // state.game_clients.remove(&game_id);
-    //     // state.games.remove(&game_id);
-    // }
-
-    return game_state(wrapper.clone(), StateRequest { game_id, username });
-    // return WsEvent::TurnRs(grid);
+    return game_state(wrapper.clone(), StateRequest::new(game_id, username));
 }
 
-pub fn game_state(
-    wrapper: Wrapper,
-    StateRequest {
-        game_id,
-        username: owner,
-    }: StateRequest,
-) -> WsEvent {
+pub fn game_state(wrapper: Wrapper, StateRequest { game_id, username }: StateRequest) -> WsEvent {
     // println!("game_state: {} {}", &game_id, &owner);
 
     let state = wrapper.shared.state.read().unwrap();
@@ -204,7 +256,7 @@ pub fn game_state(
         return WsEvent::StateRs(GridResponse::new(game.status.clone(), None));
     }
 
-    let is_turning_player = owner == game.current_turn; //bug always p2 turn if no such name
+    let is_turning_player = username == game.current_turn;
     let action = if is_turning_player {
         PlayerAction::Shoot
     } else {
@@ -214,7 +266,7 @@ pub fn game_state(
     let players = vec![game.p1.as_ref().unwrap(), game.p2.as_ref().unwrap()];
     let mut players_grid = HashMap::new();
     for p in players {
-        players_grid.insert(p.name.clone(), grid_as_json_single(p, owner != p.name));
+        players_grid.insert(p.name.clone(), grid_as_json_single(p, username != p.name));
     }
 
     return WsEvent::StateRs(GridResponse {
@@ -235,7 +287,6 @@ pub fn do_turn_user(hit: Point2d, requester: String, game: &mut Game) -> GameFlo
             break;
         }
     }
-    // let mut enemy = if game.current_turn == requester { game.p2.as_mut().unwrap() } else { game.p1.as_mut().unwrap() };
 
     let enemy = enemy_opt.unwrap();
     match enemy.grid_state[hit.x][hit.y] {
@@ -264,8 +315,8 @@ pub fn do_turn_user(hit: Point2d, requester: String, game: &mut Game) -> GameFlo
     };
 }
 
-pub fn grid_as_json_single(p: &Player, enemy: bool) -> Vec<Vec<String>> {
-    let draw_cell_types = |p: &Player, grid: &mut Vec<Vec<String>>| {
+pub fn grid_as_json_single(p: &Player, enemy: bool) -> Grid2D {
+    let draw_cell_types = |p: &Player, grid: &mut Grid2D| {
         for (x, row) in p.grid_state.iter().enumerate() {
             for (y, cell) in row.iter().enumerate() {
                 match cell {
@@ -278,7 +329,7 @@ pub fn grid_as_json_single(p: &Player, enemy: bool) -> Vec<Vec<String>> {
         }
     };
 
-    let mut grid: Vec<Vec<String>> = vec![vec![String::new(); 10]; 10];
+    let mut grid: Grid2D = vec![vec![String::new(); 10]; 10];
     draw_cell_types(p, &mut grid);
 
     if enemy {

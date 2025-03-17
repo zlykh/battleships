@@ -1,6 +1,34 @@
-use crate::app_state::{GameId, Point2d};
+use crate::app_state::Point2d;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+pub type GameId = String;
+pub type ClientId = String;
+pub type ShipsRaw = Vec<Vec<(usize, usize)>>;
+pub type Grid2D = Vec<Vec<String>>;
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum WsEvent {
+    ConnectRq { player_id: ClientId },
+    ConnectRs { player_id: ClientId },
+    CreateGameRq(CreateGameRequest),
+    CreateGameRs { game_id: GameId, status: GameStatus },
+    GameStart { game_id: GameId },
+    GameOver,
+    QueueRq(QueueRequest),
+    QueueRs { player_id: ClientId },
+    JoinRq(JoinGameRequest),
+    JoinRs(GridResponse, String),
+    TurnRq(TurnRequest),
+    TurnRs(GridDTO),
+    StateRq(StateRequest),
+    StateRs(GridResponse),
+    BadRequestRs(String),
+    ServerAbort,
+    Disconnect,
+    Debug(String),
+}
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -20,18 +48,18 @@ pub enum PlayerAction {
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct GridDTO {
-    pub me: Vec<Vec<String>>,
-    pub enemy: Vec<Vec<String>>,
+    pub me: Grid2D,
+    pub enemy: Grid2D,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct GridResponse {
-    pub me: Option<Vec<Vec<String>>>,
-    pub enemy: Option<Vec<Vec<String>>>,
+    pub me: Option<Grid2D>,
+    pub enemy: Option<Grid2D>,
     pub status: GameStatus,
     pub action: Option<PlayerAction>,
-    pub grid: HashMap<String, Vec<Vec<String>>>,
+    pub grid: HashMap<String, Grid2D>,
 }
 
 impl GridResponse {
@@ -48,40 +76,6 @@ impl GridResponse {
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct NewGameResponse {
-    pub id: String,
-    pub status: GameStatus,
-}
-
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct ConnectedResponse {
-    pub player_id: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub enum WsEvent {
-    ConnectRq(String),
-    ConnectRs(ConnectedResponse),
-    CreateGameRq(CreateGameRequest),
-    CreateGameRs(NewGameResponse),
-    GameStart,
-    GameOver,
-    JoinRq(JoinRequest),
-    JoinRs(GridResponse, String),
-    TurnRq(TurnRequest),
-    TurnRs(GridDTO),
-    StateRq(StateRequest),
-    StateRs(GridResponse),
-    BadRequestRs(String),
-    ServerAbort,
-    Disconnect,
-    Debug(String),
-}
-
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
 pub struct TurnRequest {
     pub game_id: String,
     pub username: String,
@@ -91,10 +85,24 @@ pub struct TurnRequest {
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct JoinRequest {
+pub struct JoinGameRequest {
     pub game_id: String,
     pub username: String,
-    pub ships: Vec<Vec<(usize, usize)>>,
+    pub ships: ShipsRaw,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueRequest {
+    pub username: ClientId,
+    pub ships: ShipsRaw,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateGameRequest {
+    pub username: ClientId,
+    pub ships: ShipsRaw,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
@@ -108,11 +116,4 @@ impl StateRequest {
     pub fn new(game_id: GameId, username: String) -> Self {
         Self { game_id, username }
     }
-}
-
-#[derive(Debug, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct CreateGameRequest {
-    pub username: String,
-    pub ships: Vec<Vec<(usize, usize)>>,
 }

@@ -23,6 +23,7 @@
         const deck3Max = 2;
         const deck2Max = 3;
         const deck1Max = 4;
+        const host = "vibeplay.ru"
 
 
         const gameStatus = {
@@ -50,7 +51,6 @@
                 statusDisplay: undefined,
                 hostDisplay: undefined,
                 ships_ready: false,
-                host: "http://localhost:8080",
                 deck_4_cur: 0,
                 deck_3_cur: 0,
                 deck_2_cur: 0,
@@ -130,13 +130,13 @@
 
 
                     if (this.websocket === undefined) {
-                        this.websocket = new WebSocket(`ws://${this.host.slice(7)}/ws`);
+                        this.websocket = new WebSocket(`ws://${host}/ws`);
                     }
                     const that = this;
 
                     this.websocket.onopen = function () {
                         console.log("connection opened");
-                        that.websocket.send(JSON.stringify({connectRq: "stub"}));
+                        that.websocket.send(JSON.stringify({connectRq: {playerId: "stub"}}));
                         that.websocket.send(JSON.stringify({
                             createGameRq: {
                                 username: "stub",
@@ -160,17 +160,48 @@
                 join() {
                     console.log("join")
                     if (this.websocket === undefined) {
-                        this.websocket = new WebSocket(`ws://${this.host.slice(7)}/ws`);
+                        this.websocket = new WebSocket(`ws://${host}/ws`);
                     }
 
                     const that = this;
                     this.websocket.onopen = function () {
                         console.log("connection opened");
-                        that.websocket.send(JSON.stringify({connectRq: "stub"}));
+                        that.websocket.send(JSON.stringify({connectRq: {playerId: "stub"}}));
 
                         that.websocket.send(JSON.stringify({
                             joinRq: {
                                 gameId: that.gameId,
+                                username: "stub",
+                                ships: that.final_ships
+                            }
+                        }));
+                    }
+
+                    this.websocket.onclose = function () {
+                        console.log("connection closed");
+                        that.websocket.close();
+                        that.websocket = undefined;
+                        that.ships_ready = false;
+                        that.final_ships = undefined;
+                    }
+
+                    this.websocket.onmessage = function (e) {
+                        that.wsMessageHandler(e);
+                    }
+                },
+                queue() {
+                    console.log("queue")
+                    if (this.websocket === undefined) {
+                        this.websocket = new WebSocket(`ws://${host}/ws`);
+                    }
+
+                    const that = this;
+                    this.websocket.onopen = function () {
+                        console.log("connection opened");
+                        that.websocket.send(JSON.stringify({connectRq: {playerId: "stub"}}));
+
+                        that.websocket.send(JSON.stringify({
+                            queueRq: {
                                 username: "stub",
                                 ships: that.final_ships
                             }
@@ -196,20 +227,28 @@
                     this.websocket.send(JSON.stringify({turnRq: {gameId: this.gameId, username: "stub", x: x, y: y}}));
                 },
                 wsMessageHandler(wsEvent) {
-                    console.log("received : " + wsEvent.data);
+                    // console.log("received : " + wsEvent.data);
 
                     const resp = JSON.parse(wsEvent.data);
 
-                    if (resp === 'gameStart') {
-                        console.log("All players joined, let's go")
+                    if (resp.gameStart) {
+                        const obj = resp.gameStart;
+                        this.gameId = obj.gameId;
+                        console.log(`All players joined, let's go ${obj.gameId}`)
                         return;
                     }
 
-                    if (resp === 'gameOver') {
-                        console.log("Game finished")
+                    if (resp.gameOver) {
+                        const obj = resp.gameOver;
+                        console.log(`Game finished ${obj.gameId}`)
                         // this.websocket.close();
                         // this.websocket = undefined;
                         return;
+                    }
+
+                    if (resp.queueRs) {
+                        this.statusDisplay = "Ожидание игроков (в очереди)"
+                        // console.log(`Your id ${this.playerId}`)
                     }
 
                     if (resp.connectRs) {
@@ -222,7 +261,7 @@
                         const obj = resp.createGameRs;
                         this.hostDisplay = this.host
                         this.status = obj.status
-                        this.gameId = obj.id;
+                        this.gameId = obj.gameId;
                         this.makeGameStatusDisplayText(obj.status)
                     }
 
@@ -246,7 +285,7 @@
                         const obj = resp.stateRs;
                         this.status = obj.status;
                         this.action = obj.action;
-                        console.log(`${obj.status}/${obj.action}`)
+                        // console.log(`${obj.status}/${obj.action}`)
 
                         this.makePlayerActionDisplayText(obj.action)
                         this.makeGameStatusDisplayText(obj.status)
@@ -299,7 +338,7 @@
                     }
                 },
                 placeShip(x, y) {
-                    console.log(`placing ship at ${x}, ${y}`)
+                    // console.log(`placing ship at ${x}, ${y}`)
 
                     // this.grid_arrange[5][0] = "#"
                     // this.grid_arrange[4][0] = "#"
@@ -365,7 +404,6 @@
                     }
                 },
                 accept_arrangement() {
-                    console.log(this.arr_arrange.length)
                     this.deck_4_cur = 0;
                     this.deck_3_cur = 0;
                     this.deck_2_cur = 0;
@@ -386,11 +424,11 @@
                             let tempShip = [];
                             let cell = copy[x][y]
                             if (cell !== "#") {
-                                console.log(`iterating ${x}/${y}`)
+                                // console.log(`iterating ${x}/${y}`)
                                 continue;
                             }
 
-                            console.log(`lookup ${x}/${y}`)
+                            // console.log(`lookup ${x}/${y}`)
                             // console.log(`for ${x}/${y}  tempships: ${JSON.stringify(tempShip)}`)
                             let founddown = false;
                             for (let i = 1; i <= maxShipLength; i++) {
@@ -400,7 +438,7 @@
                                         copy[x + i][y] = ".";
                                         founddown = true;
                                         // console.log("f ts " +JSON.stringify(tempShip))
-                                        console.log(`founddown at ${x + i}/${y}`)
+                                        // console.log(`founddown at ${x + i}/${y}`)
                                     } else {
                                         break;
                                     }
@@ -414,7 +452,7 @@
                                         tempShip.push([x - i, y]);
                                         copy[x - i][y] = ".";
                                         foundtop = true;
-                                        console.log(`foundtop at ${x - i}/${y}`);
+                                        // console.log(`foundtop at ${x - i}/${y}`);
                                     }
                                 } else {
                                     break;
@@ -429,7 +467,7 @@
                                         copy[x][y + i] = ".";
                                         // this.arr_arrange.splice(len, 1);
                                         foundright = true;
-                                        console.log(`foundright at ${x}/${y + i}`)
+                                        // console.log(`foundright at ${x}/${y + i}`)
                                     } else {
                                         break
                                     }
@@ -444,27 +482,27 @@
                                         copy[x][y - i] = ".";
                                         // this.arr_arrange.splice(len, 1);
                                         foundleft = true;
-                                        console.log(`foundleft at ${x}/${y - i}`)
+                                        // console.log(`foundleft at ${x}/${y - i}`)
                                     } else {
                                         break
                                     }
                                 }
                             }
 
-                            console.log(`tempships ${JSON.stringify(tempShip)}`)
+                            // console.log(`tempships ${JSON.stringify(tempShip)}`)
 
                             if (!foundtop && !founddown && !foundleft && !foundright) {
                                 tempShip.push([x, y])
                                 grouped.push(tempShip);
                                 tempShip = [];
                                 copy[x][y] = ".";
-                                console.log("single")
+                                // console.log("single")
                             }
 
 
                             // console.log(`foundx ${foundx}`)
                             if (foundtop || founddown || foundleft || foundright) {
-                                console.log(`next adjacent cell not found, push tempships to group`)
+                                // console.log(`next adjacent cell not found, push tempships to group`)
                                 tempShip.push([x, y])
                                 grouped.push(tempShip);
                                 tempShip = [];
@@ -474,7 +512,7 @@
                     }
 
 
-                    console.log(`grouped ships: ${grouped.length}  ${JSON.stringify(grouped)}`)
+                    // console.log(`grouped ships: ${grouped.length}  ${JSON.stringify(grouped)}`)
                     let errorcnt = 0;
                     for (let gid = 0; gid < grouped.length; gid++) {
                         if (grouped[gid].length === 4) {
@@ -543,10 +581,10 @@
         </li>
     </ul>
     <div class="window-body has-space">
-        <div class="field-row-stacked" style="width: 200px">
-            <label for="host">Сервер</label>
-            <input id="host" type="text" v-model="host" :disabled="hostDisplay"/>
-        </div>
+        <!--        <div class="field-row-stacked" style="width: 200px">-->
+        <!--            <label for="host">Сервер</label>-->
+        <!--            <input id="host" type="text" v-model="host" :disabled="hostDisplay"/>-->
+        <!--        </div>-->
         <ul>
             <li>
                 <details open>
@@ -580,10 +618,12 @@
 
         <div class="field-row-stacked" style="width: 200px">
             <button @click="accept_arrangement" type="button" class="default focused">Использовать расстановку</button>
-                <button @click="create" :disabled="!ships_ready" type="button">Создать игру</button>
-                <label for="gameid">ID игры</label>
-                <input id="gameid" type="text" v-model="gameId"/>
-                <button @click="join" :disabled="!gameId && !ships_ready" type="button">Присоединиться</button>
+            <button @click="create" :disabled="!ships_ready" type="button">Создать игру</button>
+            или
+            <button @click="queue" :disabled="!ships_ready" type="button">В очередь</button>
+            <label for="gameid">ID игры (впиши или отправь другу)</label>
+            <input id="gameid" type="text" v-model="gameId"/>
+            <button @click="join" :disabled="!gameId && !ships_ready" type="button">Присоединиться</button>
         </div>
 
         <p><span>{{statusDisplay}}: {{actionDisplay}}</span></p>

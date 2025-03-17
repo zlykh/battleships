@@ -1,10 +1,10 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::SocketAddr;
-use std::ops::ControlFlow;
+use std::ops::{ControlFlow, Index};
 use std::{env, thread};
 
 use crate::app_state::{Client, MyState, Shared, Wrapper};
-use crate::dto::{ConnectedResponse, StateRequest, TurnRequest, WsEvent};
+use crate::dto::{StateRequest, TurnRequest, WsEvent};
 use axum::body::Bytes;
 use axum::extract::ws::{CloseFrame, Message, Utf8Bytes, WebSocket};
 use axum::extract::{ConnectInfo, State, WebSocketUpgrade};
@@ -27,9 +27,9 @@ use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
 use tower_http::services::ServeDir;
 use tower_http::trace::{self, TraceLayer};
+use tracing::Level;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
-use tracing::Level;
 
 mod app_state;
 mod dto;
@@ -39,8 +39,13 @@ mod game_engine;
 async fn main() {
     tracing_subscriber::registry()
         .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| format!("{}=trace,tower_http=debug,axum::rejection=trace", env!("CARGO_CRATE_NAME")).into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                format!(
+                    "{}=trace,axum::rejection=trace",//,tower_http=debug,
+                    env!("CARGO_CRATE_NAME")
+                )
+                    .into()
+            }),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
@@ -51,26 +56,29 @@ async fn main() {
                 games: HashMap::new(),
                 client_games: HashMap::new(),
                 game_clients: HashMap::new(),
+                queue: VecDeque::with_capacity(100),
             }),
         }),
     };
 
+    start_matchmaker(app_state.clone());
+
     let app = Router::new()
-        .route("/", get(Html(std::fs::read_to_string("static/main.html").unwrap())))
+        .route(
+            "/",
+            get(Html(std::fs::read_to_string("static/main.html").unwrap())),
+        )
         .nest_service("/static", ServeDir::new("static"))
         .route("/ws", get(ws_handler))
         .with_state(app_state)
         .layer(
             TraceLayer::new_for_http()
-                .make_span_with(trace::DefaultMakeSpan::new()
-                    .level(Level::INFO))
-                .on_response(trace::DefaultOnResponse::new()
-                    .level(Level::INFO)));
+                .make_span_with(trace::DefaultMakeSpan::new().level(Level::INFO))
+                .on_response(trace::DefaultOnResponse::new().level(Level::INFO)),
+        );
 
     let host = "[::]:8080";
-    let listener = tokio::net::TcpListener::bind(host)
-        .await
-        .unwrap();
+    let listener = tokio::net::TcpListener::bind(host).await.unwrap();
     println!("Starting at {}", host);
     axum::serve(
         listener,
@@ -120,12 +128,12 @@ async fn websocket(stream: WebSocket, wrapper: Wrapper) {
                 println!("received: {}", text);
                 let v: WsEvent = serde_json::from_str(text.as_str()).unwrap();
                 match v {
-                    WsEvent::ConnectRq(_) => {
+                    WsEvent::ConnectRq { .. } => {
                         let _ = self_chan_sender
                             .send(
-                                (WsEvent::ConnectRs(ConnectedResponse {
+                                (WsEvent::ConnectRs {
                                     player_id: connection_id.clone(),
-                                })),
+                                }),
                             )
                             .await
                             .unwrap();
@@ -135,7 +143,7 @@ async fn websocket(stream: WebSocket, wrapper: Wrapper) {
 
                         let response = game_engine::game_new(wrapper.clone(), rq);
                         let game_id = match &response {
-                            WsEvent::CreateGameRs(ng) => ng.id.clone(),
+                            WsEvent::CreateGameRs { game_id, status } => game_id.clone(),
                             _ => String::new(),
                         };
 
@@ -187,6 +195,16 @@ async fn websocket(stream: WebSocket, wrapper: Wrapper) {
 
                         break;
                     }
+                    WsEvent::QueueRq(mut rq) => {
+                        let username = connection_id.clone();
+                        rq.username = username.clone();
+
+                        let response =
+                            game_engine::enqueue(wrapper.clone(), rq, self_chan_sender.clone());
+                        let _ = self_chan_sender.send(response).await.unwrap();
+
+                        break;
+                    }
                     _ => {}
                 }
             }
@@ -198,7 +216,7 @@ async fn websocket(stream: WebSocket, wrapper: Wrapper) {
     }
     //--end not async
 
-    //loop msg after joining... and use BREAk if needed!
+    //loop msg after joining... and use BREAK if needed!
     let connection_id_copy = connection_id.clone();
     let wrapper_copy = wrapper.clone();
     let mut recv_task = tokio::spawn(async move {
@@ -264,20 +282,14 @@ async fn websocket(stream: WebSocket, wrapper: Wrapper) {
 
     // Заблочится на этих тасках, пока один из них не сдохнет и не выключит остальные
     // Тогда перейдет к дальше к блоку "дисконект"
-    // let mut asdf = broadband_handle.unwrap();
     tokio::select! {
         _ = &mut send_self_ws_task => {
-            // asdf.abort();
             recv_task.abort();
         },
         _ = &mut recv_task => {
             send_self_ws_task.abort();
-            // asdf.abort();
         },
-        // _ = &mut asdf => {
-        //     send_self_ws_task.abort();
-        //     recv_task.abort();
-        // },
+
     }
 
     println!("Client disconnected: {}", &connection_id);
@@ -286,7 +298,24 @@ async fn websocket(stream: WebSocket, wrapper: Wrapper) {
     if let Some(game_id) = state.client_games.remove(&connection_id) {
         state.game_clients.remove(&game_id);
         state.games.remove(&game_id);
+
+        if let Some(idx) = state.queue.iter().position(|p| &p.0 == &connection_id) {
+            state.queue.remove(idx);
+        }
     }
+}
+
+fn start_matchmaker(wrapper: Wrapper) {
+    let mut interval = tokio::time::interval(Duration::from_secs(1));
+
+    tokio::spawn(async move {
+        let wrapper_clone = wrapper.clone();
+        interval.tick().await;
+        loop {
+            interval.tick().await;
+            game_engine::match_players(wrapper_clone.clone()).await;
+        }
+    });
 }
 
 fn broadband_consumer(

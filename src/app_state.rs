@@ -1,15 +1,11 @@
 use crate::app_state::ShipType::OneDeck1;
-use crate::dto::{GameStatus, WsEvent};
+use crate::dto::{ClientId, GameId, GameStatus, ShipsRaw, WsEvent};
 use rand::distr::{Alphanumeric, SampleString};
 use rand::Rng;
-use serde_json::json;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::Sender;
-
-pub type GameId = String;
-pub type ClientId = String;
 
 #[derive(Debug)]
 pub struct GameClients(pub(crate) ClientId, pub(crate) ClientId);
@@ -79,6 +75,7 @@ pub struct MyState {
     pub games: HashMap<GameId, Game>,
     pub game_clients: HashMap<GameId, GameClients>,
     pub client_games: HashMap<ClientId, GameId>,
+    pub queue: VecDeque<(ClientId, Sender<WsEvent>, ShipsRaw)>,
 }
 
 #[derive(Debug)]
@@ -108,7 +105,7 @@ impl Game {
         }
     }
 
-    pub fn join(&mut self, name: String, ships: Vec<Vec<(usize, usize)>>) {
+    pub fn join(&mut self, name: String, ships: ShipsRaw) {
         let mut server_ships = Vec::new();
         for ship in ships {
             let mut ship_coords = vec![];
@@ -180,12 +177,7 @@ impl Client {
 #[derive(Debug)]
 pub struct Player {
     pub name: String,
-    // pub ships: Vec<Ship>,
-    // pub grid_ship_lookup: HashMap<Point2d, ShipType>,
     pub grid_state: Vec<Vec<CellType>>,
-
-    pub last_hit: Option<Point2d>,
-
     pub destroyed_count: usize,
 }
 
@@ -207,7 +199,6 @@ impl Player {
                 state
             },
             destroyed_count: 0,
-            last_hit: None,
         }
     }
 }
@@ -273,34 +264,4 @@ impl Ship {
     pub fn new(coords: Vec<Point2d>, ship_type: ShipType) -> Self {
         Self { coords, ship_type }
     }
-}
-
-fn arrange_p1() -> Vec<Ship> {
-    //4-deck x1
-    let mut ships = vec![];
-    // ships.push(Ship::new(vec![
-    //     Point2d::new(4, 6), Point2d::new(4, 7),
-    //     Point2d::new(4, 8), Point2d::new(4, 9),
-    // ], ShipType::FourDeck1));
-    // //
-    // // //3-deck x2
-    // ships.push(Ship::new(vec![
-    //     Point2d::new(2, 2), Point2d::new(3, 2), Point2d::new(4, 2),
-    // ], ShipType::ThreeDeck1));
-    // ships.push(Ship::new(vec![
-    //     Point2d::new(2, 4), Point2d::new(3, 4), Point2d::new(4, 4),
-    // ], ShipType::ThreeDeck2));
-    // //
-    // //2-deck x3
-    // ships.push(Ship::new(vec![Point2d::new(6, 5), Point2d::new(6, 6)], ShipType::TwoDeck1));
-    // ships.push(Ship::new(vec![Point2d::new(1, 6), Point2d::new(1, 7)], ShipType::TwoDeck2));
-    // ships.push(Ship::new(vec![Point2d::new(8, 2), Point2d::new(8, 3)], ShipType::TwoDeck3));
-    //
-    // //1-deck x4
-    // ships.push(Ship::new(vec![Point2d::new(0, 0)], ShipType::OneDeck1));
-    // ships.push(Ship::new(vec![Point2d::new(0, 9)], ShipType::OneDeck2));
-    ships.push(Ship::new(vec![Point2d::new(9, 0)], ShipType::OneDeck3));
-    ships.push(Ship::new(vec![Point2d::new(9, 9)], ShipType::OneDeck4));
-
-    return ships;
 }
