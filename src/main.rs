@@ -307,10 +307,6 @@ fn start_matchmaker(wrapper: Wrapper) {
     });
 }
 
-fn process_init_messages(text: Message::Text) {
-
-}
-
 fn broadband_consumer(
     mut room_receiver: Receiver<String>,
     self_channel_sender: Sender<String>,
