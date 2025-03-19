@@ -1,9 +1,8 @@
-use crate::app_state::ShipType::OneDeck1;
 use crate::dto::{ClientId, GameId, GameStatus, ShipsRaw, WsEvent};
 use rand::distr::{Alphanumeric, SampleString};
 use rand::Rng;
-use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, RwLock};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::{Arc, Mutex, RwLock};
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::Sender;
 
@@ -122,7 +121,7 @@ impl Game {
                     2 => ShipType::TwoDeck1,
                     3 => ShipType::ThreeDeck1,
                     4 => ShipType::FourDeck1,
-                    _ => OneDeck1,
+                    _ => ShipType::OneDeck1,
                 },
             ))
         }
@@ -178,28 +177,42 @@ impl Client {
 pub struct Player {
     pub name: String,
     pub grid_state: Vec<Vec<CellType>>,
-    pub destroyed_count: usize,
+    pub ship_health: HashMap<Point2d, Arc<Mutex<Ship>>>,
 }
 
 impl Player {
     pub fn new(name: String, ships: Vec<Ship>) -> Self {
-        let ship_xy_cells: Vec<Point2d> = ships
-            .iter()
-            .flat_map(|nested| nested.coords.iter())
-            .map(|p| Point2d { x: p.x, y: p.y })
-            .collect();
+        let mut ship_health: HashMap<Point2d, Arc<Mutex<Ship>>> = HashMap::new();
+        for s in ships.into_iter() {
+            let arc = Arc::new(Mutex::new(Ship::new(s.coords.to_vec(), s.ship_type)));
+            for xy in &s.coords {
+                ship_health.insert(Point2d { x: xy.x, y: xy.y }, arc.clone());
+            }
+        }
 
         Self {
             name,
             grid_state: {
                 let mut state = vec![vec![CellType::EmptyNoShip; 10]; 10];
-                for point in ship_xy_cells.iter() {
+                for (point, ship) in ship_health.iter() {
                     state[point.x][point.y] = CellType::HasShip
                 }
                 state
             },
-            destroyed_count: 0,
+            ship_health,
         }
+    }
+
+    pub fn is_all_destroyed(&self) -> bool {
+        let mut all_destroyed = true;
+        for arc in self.ship_health.values() {
+            if arc.lock().unwrap().health > 0 {
+                all_destroyed = false;
+                break;
+            }
+        }
+
+        return all_destroyed;
     }
 }
 
@@ -209,7 +222,7 @@ pub enum GameFlow {
     GameOver,
 }
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, PartialEq, Copy)]
 pub enum CellType {
     #[default]
     EmptyNoShip,
@@ -218,7 +231,7 @@ pub enum CellType {
     HasShipHit,
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub struct Point2d {
     pub x: usize,
     pub y: usize,
@@ -229,7 +242,6 @@ impl Point2d {
         Self { x, y }
     }
 }
-
 
 #[derive(Clone, PartialEq, Debug, Copy)]
 pub enum ShipType {
@@ -249,10 +261,80 @@ pub enum ShipType {
 pub struct Ship {
     pub coords: Vec<Point2d>,
     pub ship_type: ShipType,
+    pub health: usize,
 }
 
 impl Ship {
     pub fn new(coords: Vec<Point2d>, ship_type: ShipType) -> Self {
-        Self { coords, ship_type }
+        Self {
+            coords,
+            ship_type,
+            health: match ship_type {
+                ShipType::OneDeck1 => 1,
+                ShipType::OneDeck2 => 1,
+                ShipType::OneDeck3 => 1,
+                ShipType::OneDeck4 => 1,
+                ShipType::TwoDeck1 => 2,
+                ShipType::TwoDeck2 => 2,
+                ShipType::TwoDeck3 => 2,
+                ShipType::ThreeDeck1 => 3,
+                ShipType::ThreeDeck2 => 3,
+                ShipType::FourDeck1 => 4,
+            },
+        }
+    }
+
+    pub fn hit(&mut self) -> HashSet<Point2d> {
+        self.health -= 1;
+
+        let mut set = HashSet::new();
+        if !self.is_dead() {
+            return set;
+        }
+
+        for p in self.coords.iter() {
+            let (x, y) = (p.x, p.y);
+            let near_down = Point2d::new(if x + 1 > 9 { 9 } else { x + 1 }, y);
+            let near_up = Point2d::new(if x + 1 - 1 == 0 { 0 } else { x - 1 }, y);
+            let near_left = Point2d::new(x, if y + 1 - 1 == 0 { 0 } else { y - 1 });
+            let near_right = Point2d::new(x, if y + 1 > 9 { 9 } else { y + 1 });
+
+            let near_down_right = Point2d::new(
+                if x + 1 > 9 { 9 } else { x + 1 },
+                if y + 1 > 9 { 9 } else { y + 1 },
+            );
+            let near_down_left = Point2d::new(
+                if x + 1 > 9 { 9 } else { x + 1 },
+                if y + 1 - 1 == 0 { 0 } else { y - 1 },
+            );
+            let near_up_right = Point2d::new(
+                if x + 1 - 1 == 0 { 0 } else { x - 1 },
+                if y + 1 > 9 { 9 } else { y + 1 },
+            );
+            let near_up_left = Point2d::new(
+                if x + 1 - 1 == 0 { 0 } else { x - 1 },
+                if y + 1 - 1 == 0 { 0 } else { y - 1 },
+            );
+
+            set.insert(near_right);
+            set.insert(near_left);
+            set.insert(near_up);
+            set.insert(near_down);
+
+            set.insert(near_up_right);
+            set.insert(near_up_left);
+            set.insert(near_down_right);
+            set.insert(near_down_left);
+        }
+
+        for p in self.coords.iter() {
+            set.remove(p);
+        }
+
+        return set;
+    }
+
+    pub fn is_dead(&self) -> bool {
+        return self.health <= 0;
     }
 }

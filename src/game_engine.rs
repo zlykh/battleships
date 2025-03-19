@@ -1,5 +1,8 @@
 use crate::app_state::{CellType, Client, Game, GameClients, GameFlow, Player, Point2d, Wrapper};
-use crate::dto::{CreateGameRequest, GameStatus, Grid2D, GridDTO, GridResponse, JoinGameRequest, PlayerAction, QueueRequest, StateRequest, TurnRequest, WsEvent};
+use crate::dto::{
+    CreateGameRequest, GameStatus, Grid2D, GridDTO, GridResponse, JoinGameRequest, PlayerAction,
+    QueueRequest, StateRequest, TurnRequest, WsEvent,
+};
 use std::collections::HashMap;
 use tokio::sync::mpsc::Sender;
 use GameStatus::{GameOver, Progress, WaitingPlayers};
@@ -154,10 +157,7 @@ pub async fn match_players(wrapper: Wrapper) {
             wrapper.attach_client(&game_id, Client::new(c2.clone(), sender2));
 
             let (me, opponent) = wrapper.get_clients(&game_id);
-            let my_state = game_state(
-                wrapper.clone(),
-                StateRequest::new(game_id.clone(), me.id),
-            );
+            let my_state = game_state(wrapper.clone(), StateRequest::new(game_id.clone(), me.id));
             let opponent_state = game_state(
                 wrapper.clone(),
                 StateRequest::new(game_id.clone(), opponent.id),
@@ -287,15 +287,23 @@ pub fn do_turn_user(hit: Point2d, requester: String, game: &mut Game) -> GameFlo
             game.current_turn = enemy.name.clone();
         } //miss
         CellType::HasShip => {
+            let s = enemy
+                .ship_health
+                .get_mut(&Point2d { x: hit.x, y: hit.y })
+                .unwrap();
+            let mark_as_hit_after_kill = s.lock().unwrap().hit();
             enemy.grid_state[hit.x][hit.y] = CellType::HasShipHit;
-            enemy.destroyed_count += 1;
+
+            for p in mark_as_hit_after_kill {
+                enemy.grid_state[p.x][p.y] = CellType::EmptyMissed;
+            }
             //don't change current turn player
         }
         CellType::EmptyMissed => {} //already miss at prev turn, do nothing
         CellType::HasShipHit => {}  //already hit at prev turn, do nothing
     }
 
-    return match enemy.destroyed_count >= 20 {
+    return match enemy.is_all_destroyed() {
         true => {
             game.status = GameOver;
             GameFlow::GameOver

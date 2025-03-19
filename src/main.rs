@@ -1,13 +1,13 @@
 use std::collections::{HashMap, VecDeque};
+use std::env;
 use std::net::SocketAddr;
-use std::{env};
 
 use crate::app_state::{Client, MyState, Shared, Wrapper};
 use crate::dto::{StateRequest, WsEvent};
 use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{State, WebSocketUpgrade};
 use axum::response::{Html, IntoResponse};
-use axum::routing::{get};
+use axum::routing::get;
 use axum::Router;
 use futures::{sink::SinkExt, stream::StreamExt};
 use serde_json::json;
@@ -33,10 +33,10 @@ async fn main() {
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
                 format!(
-                    "{}=trace,axum::rejection=trace",//,tower_http=debug,
+                    "{}=trace,axum::rejection=trace", //,tower_http=debug,
                     env!("CARGO_CRATE_NAME")
                 )
-                    .into()
+                .into()
             }),
         )
         .with(tracing_subscriber::fmt::layer())
@@ -76,8 +76,8 @@ async fn main() {
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
 }
 
 async fn ws_handler(ws: WebSocketUpgrade, State(wrapper): State<Wrapper>) -> impl IntoResponse {
@@ -123,9 +123,8 @@ async fn websocket(stream: WebSocket, wrapper: Wrapper) {
                     WsEvent::ConnectRq { .. } => {
                         let _ = self_chan_sender
                             .send(WsEvent::ConnectRs {
-                                    player_id: connection_id.clone(),
-                                },
-                            )
+                                player_id: connection_id.clone(),
+                            })
                             .await
                             .unwrap();
                     }
@@ -220,7 +219,6 @@ async fn websocket(stream: WebSocket, wrapper: Wrapper) {
                     let v: WsEvent = serde_json::from_str(text.as_str()).unwrap();
                     match v {
                         WsEvent::TurnRq(mut rq) => {
-                            //todo get game if from state
                             let username = connection_id.clone();
                             {
                                 if let None = wrapper
@@ -307,6 +305,10 @@ fn start_matchmaker(wrapper: Wrapper) {
             game_engine::match_players(wrapper_clone.clone()).await;
         }
     });
+}
+
+fn process_init_messages(text: Message::Text) {
+
 }
 
 fn broadband_consumer(
